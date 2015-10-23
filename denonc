@@ -73,7 +73,7 @@ interrupted = False
 prompt = ('> ' if interactive else '')
 while True:
     try:
-        line = raw_input('> ')
+        line = raw_input(prompt)
 
     except KeyboardInterrupt:
         interrupted = True
