@@ -1,0 +1,97 @@
+#!/usr/bin/env python
+
+# This is a simple wrapper implementing the communication below the Denon AVR
+# control protocol. Allows for interactive input (in which case a prompt is
+# displayed) or piped/redirected input for scripting. Note that this uses
+# 'readline', which means that the interactive input will obey your .inputrc.
+
+# This is not specific to any particular AVR control protocol version or
+# receiver. If you have the protocol document for your receiver in front of it
+# you can punch in commands exactly as you see them.
+#
+# tcreech@umd.edu
+
+import socket
+import time
+import string
+import sys
+import os, stat
+
+if len(sys.argv) < 2:
+    # Assume the receiver is named "denon".
+    TCP_IP = 'denon'
+else:
+    TCP_IP = sys.argv[1]
+
+
+# Communication parameters:
+TCP_PORT = 23
+# Denon's specifications say that a response should be "sent" within 200ms.
+# Assuming you're operating on a LAN, this means we can expect to only wait
+# 200ms plus few ms for any response.
+TIMEOUT = 0.2
+TIMEOUTEPSILON = 0.005
+
+# Check if the input is interactive. This is only used to determine whether or
+# not to print a prompt.
+fdmode = os.fstat(0).st_mode
+interactive = (not stat.S_ISFIFO(fdmode)) and (not stat.S_ISREG(fdmode))
+if interactive:
+    import readline
+
+# This implements a "recvall" type operation, where we assume we have all of
+# the response after a certain timeout.
+def recv_timeout(the_socket,timeout=2):
+    the_socket.setblocking(0)
+    total_data=[];data='';begin=time.time()
+    while 1:
+        #if you got some data, then break after wait sec
+        if total_data and time.time()-begin>timeout:
+            break
+        #if you got no data at all, wait a little longer
+        elif time.time()-begin>timeout*2:
+            break
+        try:
+            data=the_socket.recv(8192)
+            if data:
+                total_data.append(data)
+                begin=time.time()
+            else:
+                time.sleep(0.1)
+        except:
+            pass
+    return ''.join(total_data)
+
+# Connect to the AVR
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect((TCP_IP, TCP_PORT))
+s.setblocking(0)
+
+# Loop doing input/output repeatedly.
+# Exit when we run out of input or the user interrupts.
+interrupted = False
+prompt = ('> ' if interactive else '')
+while True:
+    try:
+        line = raw_input('> ')
+
+    except KeyboardInterrupt:
+        interrupted = True
+        break
+
+    except EOFError:
+        break
+
+    inputdata = "%s\r" % ( line )
+    s.sendall(inputdata)
+
+    data = recv_timeout(s, TIMEOUT + TIMEOUTEPSILON)
+    printdata = string.replace(data, "\r", "\n")
+    sys.stdout.write(printdata)
+    sys.stdout.flush()
+
+# Close connection and exit.
+# We return 0 if we hit EOF and 1 if we were interrupted.
+s.close()
+exit(int(interrupted))
+
